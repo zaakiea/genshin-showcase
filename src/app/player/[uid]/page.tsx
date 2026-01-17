@@ -1,16 +1,46 @@
+// src/app/player/[uid]/page.tsx
 import { EnkaResponse } from "@/types/enka";
 import {
   getCharacterName,
-  getElementColor,
   getCharacterData,
+  getElementColor,
 } from "@/lib/enka-utils";
+import Image from "next/image";
 
 async function getEnkaData(uid: string): Promise<EnkaResponse> {
   const res = await fetch(`https://enka.network/api/uid/${uid}/`, {
+    headers: {
+      // Sangat disarankan mengganti dengan nama proyek Anda atau email
+      "User-Agent":
+        "NextJsGenshinShowcase/1.0 (Contact: developer@example.com)",
+    },
     next: { revalidate: 600 },
   });
-  if (!res.ok) throw new Error("Profil tidak ditemukan");
-  return res.json();
+
+  if (!res.ok) {
+    if (res.status === 404) throw new Error("UID tidak ditemukan (404)");
+    if (res.status === 429)
+      throw new Error(
+        "Terlalu banyak permintaan (429). Mohon tunggu beberapa saat."
+      );
+    if (res.status === 424)
+      throw new Error(
+        "Sistem sedang maintenance atau sedang ada pembaruan data."
+      );
+    if (res.status === 400) throw new Error("Format UID tidak valid (400).");
+    throw new Error(`Gagal mengambil data dari Enka (Status: ${res.status})`);
+  }
+
+  const data = await res.json();
+
+  // Kasus di mana pemain ditemukan, tapi showcase dimatikan/kosong
+  if (!data.avatarInfoList || data.avatarInfoList.length === 0) {
+    throw new Error(
+      "Showcase karakter tidak aktif. Aktifkan 'Tampilkan Detail Karakter' di profil dalam game."
+    );
+  }
+
+  return data;
 }
 
 export default async function PlayerPage({
@@ -18,89 +48,65 @@ export default async function PlayerPage({
 }: {
   params: Promise<{ uid: string }>;
 }) {
-  const { uid } = await params;
+  const { uid } = await params; // Fix Next.js 15
   const data = await getEnkaData(uid);
 
   return (
-    <div className="min-h-screen bg-[#0a0a0b] p-6 lg:p-12">
-      {/* Header Profil */}
-      <div className="mb-12 flex flex-col items-center gap-4 text-center md:items-start md:text-left">
-        <h1 className="text-6xl font-black text-white">
-          {data.playerInfo.nickname}
-        </h1>
-        <div className="flex gap-4">
-          <span className="rounded-full bg-yellow-400/10 px-4 py-1 font-bold text-yellow-400 border border-yellow-400/20">
-            Adventure Rank {data.playerInfo.level}
-          </span>
-          <span className="text-slate-500 italic">
-            &quot;{data.playerInfo.signature}&quot;
-          </span>
+    <div className="min-h-screen bg-[#0a0a0b] text-white p-8">
+      <header className="mb-12">
+        <h1 className="text-5xl font-black">{data.playerInfo.nickname}</h1>
+        <div className="flex gap-4 mt-2 text-slate-400 italic">
+          <span>AR {data.playerInfo.level}</span>
+          {data.playerInfo.signature && (
+            <span>&quot;{data.playerInfo.signature}&quot;</span>
+          )}
         </div>
-      </div>
+      </header>
 
-      {/* Grid Karakter */}
-      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {data.avatarInfoList?.map((char) => {
-          const charMeta = getCharacterData(char.avatarId);
+          const meta = getCharacterData(char.avatarId);
           return (
             <div
               key={char.avatarId}
-              className={`group relative overflow-hidden rounded-[2rem] border-2 bg-gradient-to-br p-6 transition-all hover:-translate-y-2 ${getElementColor(
-                charMeta?.SideIconName.split("_")[2] || "Geo"
+              className={`relative overflow-hidden rounded-3xl border-2 bg-gradient-to-br p-6 transition-transform hover:scale-105 ${getElementColor(
+                meta?.SideIconName || ""
               )}`}
             >
               <div className="relative z-10">
-                <div className="flex justify-between items-start mb-4">
-                  <h2 className="text-2xl font-bold text-white leading-tight">
-                    {getCharacterName(char.avatarId)}
-                  </h2>
-                  <span className="text-white/60 font-mono text-sm">
-                    Lv. {char.propMap["4001"].val}
-                  </span>
-                </div>
+                <h2 className="text-2xl font-bold">
+                  {getCharacterName(char.avatarId)}
+                </h2>
+                <p className="text-sm opacity-70">
+                  Lv. {char.propMap["4001"]?.val || "1"}
+                </p>
 
-                {/* Statistik Sederhana */}
-                <div className="space-y-3">
-                  <StatRow
-                    label="Crit Rate"
-                    value={(char.fightPropMap["20"] * 100).toFixed(1) + "%"}
-                  />
-                  <StatRow
-                    label="Crit DMG"
-                    value={(char.fightPropMap["22"] * 100).toFixed(1) + "%"}
-                  />
-                  <StatRow
-                    label="Energy Recharge"
-                    value={(char.fightPropMap["23"] * 100).toFixed(1) + "%"}
-                  />
-                  <StatRow
-                    label="Attack"
-                    value={Math.round(char.fightPropMap["2001"]).toString()}
-                  />
+                <div className="mt-4 space-y-1 text-sm">
+                  <div className="flex justify-between">
+                    <span>Crit Rate</span>
+                    <span>{(char.fightPropMap["20"] * 100).toFixed(1)}%</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Crit DMG</span>
+                    <span>{(char.fightPropMap["22"] * 100).toFixed(1)}%</span>
+                  </div>
                 </div>
               </div>
 
-              {/* Dekorasi Latar Belakang */}
-              <div className="absolute -bottom-4 -right-4 h-32 w-32 opacity-20 grayscale transition-all group-hover:opacity-40 group-hover:grayscale-0">
-                <img
-                  src={`https://enka.network/ui/${charMeta?.IconName}.png`}
-                  alt="bg"
-                  className="object-contain"
-                />
-              </div>
+              {meta && (
+                <div className="absolute -bottom-4 -right-4 w-32 h-32 opacity-30">
+                  <Image
+                    src={`https://enka.network/ui/${meta.IconName}.png`}
+                    alt="icon"
+                    width={128}
+                    height={128}
+                  />
+                </div>
+              )}
             </div>
           );
         })}
       </div>
-    </div>
-  );
-}
-
-function StatRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex justify-between border-b border-white/5 pb-1">
-      <span className="text-sm text-white/50">{label}</span>
-      <span className="font-bold text-white">{value}</span>
     </div>
   );
 }
